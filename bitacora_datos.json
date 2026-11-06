@@ -1,0 +1,13 @@
+{
+  "tareas": [
+    {
+      "id": 1,
+      "title": "Hola mundoo",
+      "subject": "Estructura",
+      "category": "Tarea",
+      "due_date": "2026-12-06",
+      "status": "pending"
+    }
+  ],
+  "recibos": []
+}

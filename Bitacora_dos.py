@@ -1,12 +1,16 @@
 # Bitacora de tareas y recibos
-# Estructuras de datos: lista enlazada, pila, cola y tabla hash
-# Algoritmos: ordenamiento por merge sort, busqueda lineal y binaria y dispersion hash
+# Estructuras de datos: lista enlazada, pila, cola, tabla hash, arbol binario de busqueda y grafo
+# Algoritmos: ordenamiento por merge sort, busqueda lineal y binaria, dispersion hash,
+#             recorrido en orden del arbol y recorrido en anchura del grafo
+# Memoria: los datos se guardan en un archivo JSON y se vuelven a cargar al abrir
 
+import json
+import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 class Nodo:
-    def __init__(self, dato):       #definir la estructura de nodo como una clase
+    def __init__(self, dato):       #definir la estructura de nodo 
         self.dato = dato
         self.siguiente = None
 
@@ -242,6 +246,136 @@ class TablaHash:
         return None
 
 
+class NodoArbol:
+    def __init__(self, clave):
+        self.clave = clave                          #la clave es la fecha de vencimiento
+        self.datos = ListaEnlazada()                #en una misma fecha pueden caer varios elementos
+        self.izquierda = None
+        self.derecha = None
+
+
+class ArbolFechas:
+    def __init__(self):
+        self.raiz = None                            #ARBOL BINARIO DE BUSQUEDA: queda ordenado por fecha desde que se inserta
+        self.tamano = 0
+
+    def insertar(self, clave, dato):
+        self.raiz = self._insertar(self.raiz, clave, dato)
+        self.tamano += 1
+
+    def _insertar(self, nodo, clave, dato):
+        if nodo is None:
+            nodo = NodoArbol(clave)                 #la fecha no existia, se crea su nodo
+            nodo.datos.agregar_al_final(dato)
+            return nodo
+        if clave < nodo.clave:
+            nodo.izquierda = self._insertar(nodo.izquierda, clave, dato)    #las fechas anteriores se van a la izquierda
+        elif clave > nodo.clave:
+            nodo.derecha = self._insertar(nodo.derecha, clave, dato)        #las posteriores se van a la derecha
+        else:
+            nodo.datos.agregar_al_final(dato)                               #misma fecha: se encadena en el mismo nodo
+        return nodo
+
+    def eliminar(self, clave, cumple):
+        nodo = self._buscar_nodo(self.raiz, clave)
+        if nodo is None:
+            return None
+        dato = nodo.datos.eliminar(cumple)
+        if dato is None:
+            return None
+        self.tamano -= 1
+        if nodo.datos.esta_vacia():
+            self.raiz = self._quitar_nodo(self.raiz, clave)     #esa fecha se quedo sin elementos, el nodo ya no hace falta
+        return dato
+
+    def _buscar_nodo(self, nodo, clave):                        #busqueda en el arbol: en cada paso descarta una mitad
+        if nodo is None or nodo.clave == clave:
+            return nodo
+        if clave < nodo.clave:
+            return self._buscar_nodo(nodo.izquierda, clave)
+        return self._buscar_nodo(nodo.derecha, clave)
+
+    def _quitar_nodo(self, nodo, clave):
+        if nodo is None:
+            return None
+        if clave < nodo.clave:
+            nodo.izquierda = self._quitar_nodo(nodo.izquierda, clave)
+        elif clave > nodo.clave:
+            nodo.derecha = self._quitar_nodo(nodo.derecha, clave)
+        else:
+            if nodo.izquierda is None:
+                return nodo.derecha                 #sin hijo izquierdo, sube el derecho
+            if nodo.derecha is None:
+                return nodo.izquierda               #sin hijo derecho, sube el izquierdo
+            sucesor = self._minimo(nodo.derecha)    #con dos hijos lo reemplaza la fecha mas chica de su derecha
+            nodo.clave = sucesor.clave
+            nodo.datos = sucesor.datos
+            nodo.derecha = self._quitar_nodo(nodo.derecha, sucesor.clave)
+        return nodo
+
+    def _minimo(self, nodo):
+        while nodo.izquierda is not None:           #el minimo siempre esta lo mas a la izquierda posible
+            nodo = nodo.izquierda
+        return nodo
+
+    def en_orden(self):                             #RECORRIDO EN ORDEN: izquierda, nodo y derecha, o sea de la fecha mas vieja a la mas nueva
+        resultado = ListaEnlazada()
+        self._en_orden(self.raiz, resultado)
+        return resultado
+
+    def _en_orden(self, nodo, resultado):
+        if nodo is None:
+            return
+        self._en_orden(nodo.izquierda, resultado)
+        for dato in nodo.datos:
+            resultado.agregar_al_final(dato)
+        self._en_orden(nodo.derecha, resultado)
+
+
+class Grafo:
+    def __init__(self):
+        self._adyacencia = TablaHash()              #GRAFO no dirigido guardado como lista de adyacencia: cada nodo con la lista de sus vecinos
+
+    def agregar_nodo(self, nodo):
+        if self._adyacencia.obtener(nodo) is None:
+            self._adyacencia.insertar(nodo, ListaEnlazada())
+
+    def agregar_arista(self, a, b):
+        self.agregar_nodo(a)
+        self.agregar_nodo(b)
+        vecinos_a = self._adyacencia.obtener(a)
+        if vecinos_a.buscar(lambda x: x == b) is None:          #busqueda lineal para no repetir la arista
+            vecinos_a.agregar_al_final(b)
+            self._adyacencia.obtener(b).agregar_al_final(a)     #al no ser dirigido, la arista se guarda de los dos lados
+
+    def quitar_nodo(self, nodo):
+        vecinos = self._adyacencia.obtener(nodo)
+        if vecinos is None:
+            return
+        for vecino in vecinos:
+            self._adyacencia.obtener(vecino).eliminar(lambda x: x == nodo)      #se borra la arista del otro lado
+        self._adyacencia.eliminar(nodo)
+
+    def recorrido_anchura(self, origen, niveles):   #RECORRIDO EN ANCHURA: avanza por niveles apoyandose en una cola
+        alcanzados = ListaEnlazada()
+        if self._adyacencia.obtener(origen) is None:
+            return alcanzados
+        visitados = TablaHash()                     #la tabla hash evita volver a pasar por un nodo
+        visitados.insertar(origen, True)
+        cola = Cola()
+        cola.encolar((origen, 0))
+        while not cola.esta_vacia():
+            nodo, nivel = cola.desencolar()
+            if nivel == niveles:
+                alcanzados.agregar_al_final(nodo)   #este es el nivel que se pidio, de aqui ya no se baja mas
+                continue
+            for vecino in self._adyacencia.obtener(nodo):
+                if visitados.obtener(vecino) is None:
+                    visitados.insertar(vecino, True)
+                    cola.encolar((vecino, nivel + 1))
+        return alcanzados
+
+
 def arreglo_ordenado_por_fecha(lista):
     ordenada = lista.copia()
     ordenada.ordenar_por(lambda x: x.due_date)      #se ordena primero porque la busqueda binaria solo sirve en datos ordenados
@@ -251,7 +385,7 @@ def arreglo_ordenado_por_fecha(lista):
 def buscar_corte_por_fecha(arreglo, fecha):
     bajo = 0
     alto = len(arreglo)
-    while bajo < alto:                              #busqueda binaria: devuelve la primera posicion con fecha mayor o igual a la buscada, O(log n)
+    while bajo < alto:                              #busqueda binaria: devuelve la primera posicion con fecha mayor o igual a la buscada,
         medio = (bajo + alto) // 2
         if arreglo[medio].due_date < fecha:
             bajo = medio + 1                        #la posicion buscada esta en la mitad derecha
@@ -336,69 +470,121 @@ class Resumen:
         self.recibos_pendientes = 0
 
 
+ARCHIVO_DATOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bitacora_datos.json")
+
+
 class Bitacora:
-    def __init__(self):
+    def __init__(self, archivo=ARCHIVO_DATOS):
         self._homeworks = ListaEnlazada()
         self._bills = ListaEnlazada()                               #clase de bitacora y definir las opciones como lista enlazada
         self._indice_tareas = TablaHash()                           #tablas hash que indexan por ID para no recorrer la lista completa
         self._indice_recibos = TablaHash()
+        self._arbol_tareas = ArbolFechas()                          #arboles que indexan por fecha para entregarlas ya ordenadas
+        self._arbol_recibos = ArbolFechas()
+        self._grafo = Grafo()                                       #grafo que conecta cada elemento con su categoria y su materia
         self._next_homework_id = 1
         self._next_bill_id = 1
+        self._archivo = archivo                                     #archivo donde vive la memoria de la bitacora
+        self._cambios = False
+
+    def _indexar_tarea(self, homework):
+        self._homeworks.agregar_al_final(homework)
+        self._indice_tareas.insertar(homework.id, homework)         #se guarda tambien en la tabla hash
+        self._arbol_tareas.insertar(homework.due_date, homework)    #y en el arbol, usando la fecha como clave
+        self._conectar_tarea(homework)
+
+    def _conectar_tarea(self, homework):
+        nodo = ("tarea", homework.id)
+        self._grafo.agregar_nodo(nodo)
+        if homework.category:
+            self._grafo.agregar_arista(nodo, ("categoria", homework.category))      #arista tarea - categoria
+        if homework.subject:
+            self._grafo.agregar_arista(nodo, ("materia", homework.subject))         #arista tarea - materia
+
+    def _elementos_de_categoria(self, categoria, tipo):
+        alcanzados = self._grafo.recorrido_anchura(("categoria", categoria), 1)     #el grafo entrega los vecinos de esa categoria
+        ids = TablaHash()
+        for nodo in alcanzados:
+            if nodo[0] == tipo:                                     #de esos vecinos solo interesan los del tipo que se pidio
+                ids.insertar(nodo[1], True)
+        return ids
 
     def add_homework(self, title, subject, category, due_date, status=STATUS_PENDING):
         homework = Homework(self._next_homework_id, title, subject, category, due_date, status)     #definicion para agregar tarea
-        self._homeworks.agregar_al_final(homework)
-        self._indice_tareas.insertar(homework.id, homework)                                 #se guarda tambien en la tabla hash
+        self._indexar_tarea(homework)
         self._next_homework_id += 1
+        self._cambios = True
         return homework
 
     def list_homeworks(self, status=None, category=None):
-        seleccion = self._homeworks.copia()
+        seleccion = self._arbol_tareas.en_orden()                   #el recorrido en orden del arbol ya las devuelve por fecha
         if status:
             seleccion = seleccion.filtrar(lambda h: h.status == status)                   #definir la lista de tareas, y filtraciones de status y categoria
         if category:
-            seleccion = seleccion.filtrar(lambda h: h.category == category)
-        seleccion.ordenar_por(lambda h: h.due_date)
+            ids = self._elementos_de_categoria(category, "tarea")
+            seleccion = seleccion.filtrar(lambda h: ids.obtener(h.id) is not None)
         return seleccion
 
     def get_homework(self, homework_id):                                                #busqueda de tarea por ID resuelta con la tabla hash
         return self._indice_tareas.obtener(homework_id)
 
     def marcar_homework_hecha(self, homework_id):
-        homework = self.get_homework(homework_id)                                        
+        homework = self.get_homework(homework_id)
         if homework is not None:
             homework.status = STATUS_DONE
+            self._cambios = True
         return homework
 
     def editar_homework(self, homework_id, title, subject, category, due_date):
         homework = self.get_homework(homework_id)
         if homework is not None:
+            self._arbol_tareas.eliminar(homework.due_date, lambda h: h.id == homework_id)   #sale del arbol con su fecha vieja
+            self._grafo.quitar_nodo(("tarea", homework_id))                                 #y se desconecta del grafo
             homework.title = title
             homework.subject = subject
             homework.category = category
             homework.due_date = due_date
+            self._arbol_tareas.insertar(due_date, homework)                                 #vuelve a entrar ya acomodada con los datos nuevos
+            self._conectar_tarea(homework)
+            self._cambios = True
         return homework
 
     def delete_homework(self, homework_id):
+        homework = self.get_homework(homework_id)
         if self._indice_tareas.eliminar(homework_id) is None:                               #la tabla hash dice si existe antes de recorrer la lista
             return False
         self._homeworks.eliminar(lambda h: h.id == homework_id)
+        self._arbol_tareas.eliminar(homework.due_date, lambda h: h.id == homework_id)
+        self._grafo.quitar_nodo(("tarea", homework_id))
+        self._cambios = True
         return True
+
+    def _indexar_recibo(self, bill):
+        self._bills.agregar_al_final(bill)
+        self._indice_recibos.insertar(bill.id, bill)
+        self._arbol_recibos.insertar(bill.due_date, bill)
+        self._conectar_recibo(bill)
+
+    def _conectar_recibo(self, bill):
+        nodo = ("recibo", bill.id)
+        self._grafo.agregar_nodo(nodo)
+        if bill.category:
+            self._grafo.agregar_arista(nodo, ("categoria", bill.category))      #arista recibo - categoria
 
     def add_bill(self, name, amount, category, due_date, status=STATUS_UNPAID):
         bill = Bill(self._next_bill_id, name, amount, category, due_date, status)
-        self._bills.agregar_al_final(bill)
-        self._indice_recibos.insertar(bill.id, bill)
+        self._indexar_recibo(bill)
         self._next_bill_id += 1
+        self._cambios = True
         return bill
 
     def list_bills(self, status=None, category=None):
-        seleccion = self._bills.copia()
+        seleccion = self._arbol_recibos.en_orden()
         if status:
             seleccion = seleccion.filtrar(lambda b: b.status == status)
         if category:
-            seleccion = seleccion.filtrar(lambda b: b.category == category)
-        seleccion.ordenar_por(lambda b: b.due_date)
+            ids = self._elementos_de_categoria(category, "recibo")
+            seleccion = seleccion.filtrar(lambda b: ids.obtener(b.id) is not None)
         return seleccion
 
     def get_bill(self, bill_id):
@@ -408,22 +594,107 @@ class Bitacora:
         bill = self.get_bill(bill_id)
         if bill is not None:
             bill.status = STATUS_PAID
+            self._cambios = True
         return bill
 
     def editar_bill(self, bill_id, name, amount, category, due_date):
         bill = self.get_bill(bill_id)
         if bill is not None:
+            self._arbol_recibos.eliminar(bill.due_date, lambda b: b.id == bill_id)
+            self._grafo.quitar_nodo(("recibo", bill_id))
             bill.name = name
             bill.amount = amount
             bill.category = category
             bill.due_date = due_date
+            self._arbol_recibos.insertar(due_date, bill)
+            self._conectar_recibo(bill)
+            self._cambios = True
         return bill
 
     def delete_bill(self, bill_id):
+        bill = self.get_bill(bill_id)
         if self._indice_recibos.eliminar(bill_id) is None:
             return False
         self._bills.eliminar(lambda b: b.id == bill_id)
+        self._arbol_recibos.eliminar(bill.due_date, lambda b: b.id == bill_id)
+        self._grafo.quitar_nodo(("recibo", bill_id))
+        self._cambios = True
         return True
+
+    def cargar(self):                                               #MEMORIA: al abrir, lo guardado se vuelve a meter en todas las estructuras
+        if not os.path.exists(self._archivo):
+            return
+        try:
+            with open(self._archivo, "r", encoding="utf-8") as archivo:
+                datos = json.load(archivo)
+        except (OSError, ValueError):
+            print("No se pudo leer la bitácora guardada, se empieza vacía.")
+            return
+        if not isinstance(datos, dict):
+            print("El archivo de la bitácora no tiene el formato esperado, se empieza vacía.")
+            return
+
+        for registro in datos.get("tareas", []):
+            try:
+                homework = Homework(
+                    int(registro["id"]),
+                    registro["title"],
+                    registro.get("subject"),
+                    registro.get("category"),
+                    parse_date(registro["due_date"]),
+                    registro.get("status", STATUS_PENDING),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue                                            #un registro dañado se salta en lugar de tirar el programa
+            self._indexar_tarea(homework)
+            if homework.id >= self._next_homework_id:
+                self._next_homework_id = homework.id + 1             #los IDs siguen donde se quedaron la vez pasada
+
+        for registro in datos.get("recibos", []):
+            try:
+                bill = Bill(
+                    int(registro["id"]),
+                    registro["name"],
+                    Decimal(registro["amount"]),
+                    registro.get("category"),
+                    parse_date(registro["due_date"]),
+                    registro.get("status", STATUS_UNPAID),
+                )
+            except (KeyError, TypeError, ValueError, InvalidOperation):
+                continue
+            self._indexar_recibo(bill)
+            if bill.id >= self._next_bill_id:
+                self._next_bill_id = bill.id + 1
+
+    def guardar(self):                                              #MEMORIA: se escribe el archivo nada mas si algo cambio
+        if not self._cambios:
+            return
+        tareas = []
+        for h in self._homeworks:
+            tareas.append({
+                "id": h.id,
+                "title": h.title,
+                "subject": h.subject,
+                "category": h.category,
+                "due_date": h.due_date.isoformat(),                 #la fecha se guarda como texto AAAA-MM-DD
+                "status": h.status,
+            })
+        recibos = []
+        for b in self._bills:
+            recibos.append({
+                "id": b.id,
+                "name": b.name,
+                "amount": str(b.amount),                            #el monto se guarda como texto para no perder los centavos
+                "category": b.category,
+                "due_date": b.due_date.isoformat(),
+                "status": b.status,
+            })
+        try:
+            with open(self._archivo, "w", encoding="utf-8") as archivo:
+                json.dump({"tareas": tareas, "recibos": recibos}, archivo, ensure_ascii=False, indent=2)
+            self._cambios = False
+        except OSError:
+            print("No se pudo guardar la bitácora.")
 
     def summary(self):
         datos = Resumen()
@@ -763,32 +1034,40 @@ def _pantalla_menu_recibos(bitacora):
 
 def main():
     bitacora = Bitacora()
+    bitacora.cargar()                                   #lo que se guardo la vez pasada regresa antes de mostrar el menu
     print("Bitácora")
 
     pantallas = Pila()
     pantallas.apilar("principal")
 
-    while not pantallas.esta_vacia():
-        actual = pantallas.ver_cima()
+    try:
+        while not pantallas.esta_vacia():
+            actual = pantallas.ver_cima()
 
-        if actual == "principal":
-            opcion = _pantalla_menu_principal()
-            if opcion == "1":
-                pantallas.apilar("tareas")              #aqui se ocupan pilas, en caso 1 muestra las tareas, 2 recibos, 3 resumen y 4 termina, cualquier otro es invalido
-            elif opcion == "2":
-                pantallas.apilar("recibos")
-            elif opcion == "3":
-                print_resumen(bitacora.summary())       
-            elif opcion == "4":
-                pantallas.desapilar()
-            else:
-                print("Opción inválida.")
-        elif actual == "tareas":
-            if not _pantalla_menu_tareas(bitacora):
-                pantallas.desapilar()
-        elif actual == "recibos":
-            if not _pantalla_menu_recibos(bitacora):
-                pantallas.desapilar()
+            if actual == "principal":
+                opcion = _pantalla_menu_principal()
+                if opcion == "1":
+                    pantallas.apilar("tareas")              #aqui se ocupan pilas, en caso 1 muestra las tareas, 2 recibos, 3 resumen y 4 termina, cualquier otro es invalido
+                elif opcion == "2":
+                    pantallas.apilar("recibos")
+                elif opcion == "3":
+                    print_resumen(bitacora.summary())
+                elif opcion == "4":
+                    pantallas.desapilar()
+                else:
+                    print("Opción inválida.")
+            elif actual == "tareas":
+                if not _pantalla_menu_tareas(bitacora):
+                    pantallas.desapilar()
+            elif actual == "recibos":
+                if not _pantalla_menu_recibos(bitacora):
+                    pantallas.desapilar()
+
+            bitacora.guardar()                          #se guarda despues de cada movimiento, no nada mas al final
+    except (KeyboardInterrupt, EOFError):
+        print()                                         #si se cierra a la fuerza, igual alcanza a guardar
+    finally:
+        bitacora.guardar()
 
     print("byebye.")
 
